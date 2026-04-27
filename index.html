@@ -1,0 +1,974 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <base target="_top">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sensus Ekonomi 2026 - Arsip Digital BPS Kalbar</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Font Awesome -->
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <!-- Google Fonts -->
+    <link
+        href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,300;14..32,400;14..32,500;14..32,600;14..32,700;14..32,800&display=swap"
+        rel="stylesheet">
+
+    <style>
+        * {
+            font-family: 'Inter', sans-serif;
+        }
+
+        .loading-overlay {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.6);
+            backdrop-filter: blur(5px);
+            z-index: 9999;
+            justify-content: center;
+            align-items: center;
+        }
+
+        #toast-container {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            z-index: 10000;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .toast {
+            min-width: 300px;
+            padding: 16px;
+            border-radius: 12px;
+            background: white;
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+            border-left: 5px solid #F97316;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            animation: slideIn 0.3s forwards;
+            font-size: 0.9rem;
+        }
+
+        @keyframes slideIn {
+            from {
+                transform: translateX(100%);
+            }
+
+            to {
+                transform: translateX(0);
+            }
+        }
+
+        #sidebar {
+            transition: transform 0.3s ease-in-out;
+        }
+
+        .preview-container {
+            min-height: 400px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background-color: #f8fafc;
+            border: 2px dashed #cbd5e1;
+            border-radius: 16px;
+            position: relative;
+            overflow: hidden;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .preview-container:hover {
+            border-color: #F97316;
+            background-color: #fff7ed;
+        }
+
+        .preview-content {
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+            display: none;
+        }
+
+        #zoom-modal {
+            display: none;
+            position: fixed;
+            z-index: 20000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.9);
+            backdrop-filter: blur(5px);
+            padding: 20px;
+            box-sizing: border-box;
+        }
+
+        #zoom-content {
+            margin: auto;
+            display: block;
+            max-width: 90%;
+            max-height: 90%;
+            object-fit: contain;
+            border-radius: 8px;
+        }
+
+        .card-hover {
+            transition: all 0.3s ease;
+        }
+
+        .card-hover:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 20px 25px -12px rgba(0, 0, 0, 0.1);
+        }
+    </style>
+</head>
+
+<body class="bg-gradient-to-br from-orange-50 via-amber-50 to-white font-sans text-slate-800 overflow-hidden">
+
+    <!-- Toast Container -->
+    <div id="toast-container"></div>
+
+    <!-- Loading Overlay -->
+    <div id="loading" class="loading-overlay">
+        <div class="bg-white rounded-2xl p-8 text-center shadow-2xl">
+            <div
+                class="animate-spin rounded-full h-14 w-14 border-4 border-orange-100 border-t-orange-600 mx-auto mb-4">
+            </div>
+            <p class="font-bold text-orange-700 text-lg">Memproses Data...</p>
+        </div>
+    </div>
+
+    <!-- ZOOM MODAL -->
+    <div id="zoom-modal" onclick="closeZoom()">
+        <span
+            class="absolute top-5 right-8 text-white text-5xl font-bold cursor-pointer hover:text-orange-500 transition">&times;</span>
+        <img class="hidden" id="zoom-img" src="" alt="Zoomed Image">
+        <iframe class="hidden w-full h-full bg-white rounded-lg" id="zoom-pdf"></iframe>
+    </div>
+
+    <!-- CONFIRMATION MODAL -->
+    <div id="confirm-modal" class="fixed inset-0 bg-black/50 z-[10001] hidden flex items-center justify-center p-4">
+        <div class="bg-white rounded-2xl p-6 max-w-sm w-full shadow-2xl text-center">
+            <div class="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                <i class="fas fa-trash-alt text-red-600 text-2xl"></i>
+            </div>
+            <h3 class="text-xl font-bold text-slate-800 mb-2">Hapus Arsip?</h3>
+            <p class="text-slate-500 text-sm mb-6">Data yang dihapus tidak dapat dikembalikan. File di Google Drive juga
+                akan ikut terhapus.</p>
+            <div class="flex gap-3">
+                <button onclick="closeConfirmModal()"
+                    class="flex-1 py-2 px-4 rounded-xl border border-slate-200 text-slate-600 font-bold hover:bg-slate-50">Batal</button>
+                <button id="confirm-delete-btn"
+                    class="flex-1 py-2 px-4 rounded-xl bg-red-500 text-white font-bold hover:bg-red-600 shadow-lg shadow-red-500/30">Ya,
+                    Hapus</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- LOGIN PAGE -->
+    <div id="loginPage" class="min-h-screen flex items-center justify-center p-4 relative overflow-hidden">
+        <div class="absolute inset-0 overflow-hidden pointer-events-none">
+            <div
+                class="absolute -top-40 -right-40 w-96 h-96 bg-orange-300 rounded-full opacity-10 blur-3xl animate-pulse">
+            </div>
+            <div class="absolute -bottom-40 -left-40 w-96 h-96 bg-amber-300 rounded-full opacity-10 blur-3xl animate-pulse"
+                style="animation-delay: 1s;"></div>
+        </div>
+        <div
+            class="bg-white/90 backdrop-blur-md p-8 rounded-3xl shadow-2xl w-full max-w-md border border-orange-100 relative z-10">
+            <div class="text-center mb-8">
+                <div
+                    class="bg-gradient-to-br from-orange-500 to-orange-600 w-24 h-24 rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-lg">
+                    <i class="fas fa-chart-simple text-white text-4xl"></i>
+                </div>
+                <h1
+                    class="text-3xl font-extrabold bg-gradient-to-r from-orange-600 to-orange-800 bg-clip-text text-transparent">
+                    ARDI SE 2026</h1>
+                <p class="text-sm text-orange-600 font-medium mt-2 tracking-wide">Arsip Digital Sensus Ekonomi 2026</p>
+            </div>
+            <div class="space-y-5">
+                <div class="relative group">
+                    <i
+                        class="fas fa-envelope absolute left-4 top-1/2 transform -translate-y-1/2 text-orange-400 group-focus-within:text-orange-600 transition-colors"></i>
+                    <input type="email" id="email" placeholder="Email BPS"
+                        class="w-full pl-12 pr-4 py-3 border border-orange-200 rounded-xl focus:ring-2 focus:ring-orange-500 bg-orange-50/50 transition-all">
+                </div>
+                <div class="relative group">
+                    <i
+                        class="fas fa-lock absolute left-4 top-1/2 transform -translate-y-1/2 text-orange-400 group-focus-within:text-orange-600 transition-colors"></i>
+                    <input type="password" id="pass" placeholder="Password"
+                        class="w-full pl-12 pr-4 py-3 border border-orange-200 rounded-xl focus:ring-2 focus:ring-orange-500 bg-orange-50/50 transition-all">
+                </div>
+                <button onclick="handleLogin()"
+                    class="w-full bg-gradient-to-r from-orange-500 to-orange-600 text-white py-3.5 rounded-xl font-bold hover:from-orange-600 hover:to-orange-700 shadow-lg shadow-orange-500/30 transition-all transform hover:-translate-y-1 active:scale-95 flex items-center justify-center gap-2">
+                    <i class="fas fa-sign-in-alt"></i> MASUK DASHBOARD
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- MAIN APP INTERFACE -->
+    <div id="mainApp" class="hidden h-screen flex overflow-hidden">
+        <!-- Mobile Header -->
+        <div
+            class="md:hidden fixed top-0 w-full bg-white border-b border-orange-100 z-40 px-4 py-3 flex justify-between items-center shadow-sm">
+            <div class="flex items-center gap-2">
+                <div class="bg-orange-500 w-8 h-8 rounded-lg flex items-center justify-center"><i
+                        class="fas fa-chart-simple text-white text-sm"></i></div>
+                <span class="font-bold text-orange-800 text-sm">ARDI SE 2026</span>
+            </div>
+            <button onclick="toggleSidebar()" class="text-slate-600 hover:text-orange-600 focus:outline-none"><i
+                    class="fas fa-bars text-2xl"></i></button>
+        </div>
+
+        <!-- SIDEBAR OVERLAY -->
+        <div id="sidebar-overlay" onclick="toggleSidebar()"
+            class="fixed inset-0 bg-black/50 z-40 hidden md:hidden transition-opacity"></div>
+
+        <!-- SIDEBAR -->
+        <div id="sidebar"
+            class="fixed inset-y-0 left-0 w-72 bg-white/95 backdrop-blur-md border-r border-orange-100 z-50 transform -translate-x-full md:relative md:translate-x-0 flex flex-col shadow-2xl md:shadow-none h-full overflow-y-auto">
+            <div class="p-6">
+                <div class="flex items-center gap-3 mb-1">
+                    <div
+                        class="bg-gradient-to-br from-orange-500 to-orange-600 w-10 h-10 rounded-xl flex items-center justify-center shadow-md">
+                        <i class="fas fa-chart-simple text-white text-lg"></i>
+                    </div>
+                    <h2
+                        class="text-xl font-extrabold bg-gradient-to-r from-orange-600 to-orange-800 bg-clip-text text-transparent">
+                        ARDI SE 2026</h2>
+                </div>
+                <p class="text-xs text-slate-400 ml-13 pl-1">Arsip Digital Sensus Ekonomi 2026</p>
+            </div>
+            <nav class="space-y-1 px-4 flex-1">
+                <button onclick="showSection('dash')" id="btn-dash"
+                    class="nav-btn w-full text-left p-3.5 rounded-xl transition-all duration-300 flex items-center gap-3 text-slate-600 hover:bg-orange-50 font-medium">
+                    <i class="fas fa-chart-line w-5 text-center"></i><span>Dashboard</span>
+                </button>
+                <div class="pt-4 pb-2 px-2">
+                    <p class="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Input Data</p>
+                </div>
+                <button onclick="showSection('foto')" id="btn-foto"
+                    class="nav-btn w-full text-left p-3.5 rounded-xl transition-all duration-300 flex items-center gap-3 text-slate-600 hover:bg-orange-50 font-medium">
+                    <i class="fas fa-camera w-5 text-center"></i><span>Input Foto</span>
+                </button>
+                <button onclick="showSection('surat')" id="btn-surat"
+                    class="nav-btn w-full text-left p-3.5 rounded-xl transition-all duration-300 flex items-center gap-3 text-slate-600 hover:bg-orange-50 font-medium">
+                    <i class="fas fa-file-alt w-5 text-center"></i><span>Input Kegiatan</span>
+                </button>
+                <div class="pt-4 pb-2 px-2">
+                    <p class="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Daftar Arsip</p>
+                </div>
+                <button onclick="showSection('list-foto')" id="btn-list-foto"
+                    class="nav-btn w-full text-left p-3.5 rounded-xl transition-all duration-300 flex items-center gap-3 text-slate-600 hover:bg-orange-50 font-medium">
+                    <i class="fas fa-images w-5 text-center"></i><span>Daftar Arsip Foto</span>
+                </button>
+                <button onclick="showSection('list-surat')" id="btn-list-surat"
+                    class="nav-btn w-full text-left p-3.5 rounded-xl transition-all duration-300 flex items-center gap-3 text-slate-600 hover:bg-orange-50 font-medium">
+                    <i class="fas fa-folder-open w-5 text-center"></i><span>Daftar Kegiatan</span>
+                </button>
+            </nav>
+            <div class="p-6 border-t border-orange-100 mt-auto space-y-4">
+                <button onclick="handleLogout()"
+                    class="w-full text-red-500 text-left p-3 font-medium hover:bg-red-50 rounded-xl transition-all flex items-center gap-3">
+                    <i class="fas fa-sign-out-alt w-5"></i><span>Keluar Sistem</span>
+                </button>
+            </div>
+        </div>
+
+        <!-- MAIN CONTENT AREA -->
+        <main class="flex-1 h-full overflow-y-auto pt-16 md:pt-0 bg-slate-50/50">
+            <div class="p-4 md:p-8 max-w-7xl mx-auto">
+
+                <!-- DASHBOARD -->
+                <div id="sec-dash" class="section">
+                    <div class="mb-8">
+                        <h2 class="text-3xl font-extrabold text-slate-800">Halo, <span
+                                class="bg-gradient-to-r from-orange-600 to-orange-800 bg-clip-text text-transparent">Pengelola
+                                Arsip!</span></h2>
+                        <p class="text-slate-500 mt-1">Berikut ringkasan realisasi arsip Sensus Ekonomi 2026</p>
+                    </div>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+                        <div
+                            class="bg-gradient-to-br from-orange-50 to-white p-6 rounded-3xl shadow-sm border border-orange-100 card-hover relative overflow-hidden">
+                            <div
+                                class="absolute top-0 right-0 w-32 h-32 bg-orange-200 rounded-full opacity-20 blur-3xl">
+                            </div>
+                            <div class="flex items-center justify-between mb-4">
+                                <div class="bg-white p-3 rounded-xl shadow-sm"><i
+                                        class="fas fa-camera text-orange-600 text-2xl"></i></div>
+                                <span
+                                    class="text-xs font-semibold text-orange-600 bg-orange-100 px-3 py-1 rounded-full">Realisasi</span>
+                            </div>
+                            <p class="text-slate-600 text-sm font-bold uppercase tracking-wide">Total Arsip Foto</p>
+                            <h3 id="count-foto" class="text-5xl font-extrabold text-orange-600 mt-2 tabular-nums">0</h3>
+                        </div>
+                        <div
+                            class="bg-gradient-to-br from-amber-50 to-white p-6 rounded-3xl shadow-sm border border-amber-100 card-hover relative overflow-hidden">
+                            <div class="absolute top-0 right-0 w-32 h-32 bg-amber-200 rounded-full opacity-20 blur-3xl">
+                            </div>
+                            <div class="flex items-center justify-between mb-4">
+                                <div class="bg-white p-3 rounded-xl shadow-sm"><i
+                                        class="fas fa-file-alt text-amber-600 text-2xl"></i></div>
+                                <span
+                                    class="text-xs font-semibold text-amber-600 bg-amber-100 px-3 py-1 rounded-full">Realisasi</span>
+                            </div>
+                            <p class="text-slate-600 text-sm font-bold uppercase tracking-wide">Total Arsip Kegiatan</p>
+                            <h3 id="count-surat" class="text-5xl font-extrabold text-amber-600 mt-2 tabular-nums">0</h3>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- FOTO SECTION -->
+                <div id="sec-foto" class="section hidden">
+                    <div class="mb-6">
+                        <h2 class="text-2xl font-bold flex items-center gap-3">
+                            <div class="p-2 bg-orange-100 rounded-lg text-orange-600"><i class="fas fa-camera"></i>
+                            </div>
+                            <span id="foto-form-title">Input Arsip Foto</span>
+                        </h2>
+                        <p class="text-slate-500 mt-2 ml-12" id="foto-form-subtitle">Unggah dokumentasi kegiatan</p>
+                    </div>
+                    <div class="grid grid-cols-1 lg:grid-cols-12 gap-8">
+                        <div class="lg:col-span-7">
+                            <form id="formFoto"
+                                class="bg-white p-6 md:p-8 rounded-3xl shadow-xl border border-orange-50">
+                                <!-- Hidden ID for Edit Mode -->
+                                <input type="hidden" id="idFoto" name="id">
+                                <input type="hidden" id="linkFoto" name="link">
+                                <input type="hidden" id="bulanFoto" name="bulan">
+
+                                <div class="grid grid-cols-1 md:grid-cols-2 gap-5 mb-5">
+                                    <div>
+                                        <label class="block text-sm font-bold mb-2 text-slate-700">Kode
+                                            Klasifikasi</label>
+                                        <input type="text" name="kode" id="kodeFoto"
+                                            class="w-full p-3 border border-slate-200 rounded-xl bg-slate-50 focus:bg-white transition-colors"
+                                            placeholder="SE2026.FT.001">
+                                    </div>
+                                    <div>
+                                        <label class="block text-sm font-bold mb-2 text-slate-700">Tanggal</label>
+                                        <input type="date" name="tanggal" id="tanggalFoto" required
+                                            class="w-full p-3 border border-slate-200 rounded-xl bg-slate-50 focus:bg-white transition-colors">
+                                    </div>
+                                </div>
+                                <div class="mb-5">
+                                    <label class="block text-sm font-bold mb-2 text-slate-700">Nama Kegiatan</label>
+                                    <input type="text" name="kegiatan" id="kegiatanFoto" required
+                                        class="w-full p-3 border border-slate-200 rounded-xl bg-slate-50 focus:bg-white transition-colors"
+                                        placeholder="Contoh: Sosialisasi SE2026">
+                                </div>
+                                <div class="mb-5">
+                                    <label class="block text-sm font-bold mb-2 text-slate-700">Uraian Arsip</label>
+                                    <textarea name="uraian" id="uraianFoto" required
+                                        class="w-full p-3 border border-slate-200 rounded-xl h-24 bg-slate-50 focus:bg-white transition-colors"
+                                        placeholder="Deskripsi singkat..."></textarea>
+                                </div>
+                                <div class="grid grid-cols-1 md:grid-cols-2 gap-5 mb-6">
+                                    <div>
+                                        <label class="block text-sm font-bold mb-2 text-slate-700">Fotografer</label>
+                                        <input type="text" name="fotografer" id="fotografer" required
+                                            class="w-full p-3 border border-slate-200 rounded-xl bg-slate-50 focus:bg-white transition-colors">
+                                    </div>
+                                    <div>
+                                        <label class="block text-sm font-bold mb-2 text-slate-700">Upload Foto</label>
+                                        <input type="file" id="fileFoto" accept="image/*" onchange="previewImage()"
+                                            class="w-full text-sm text-slate-500 file:mr-4 file:py-2.5 file:px-4 file:rounded-xl file:border-0 file:text-sm file:font-semibold file:bg-orange-50 file:text-orange-600 hover:file:bg-orange-100 cursor-pointer">
+                                        <p class="text-xs text-slate-400 mt-1">*Biarkan kosong jika tidak ingin
+                                            mengganti foto lama saat edit.</p>
+                                    </div>
+                                </div>
+                                <div class="flex gap-3">
+                                    <button type="button" onclick="resetForm('formFoto')" id="btnCancelFoto"
+                                        class="hidden flex-1 bg-slate-200 text-slate-700 py-3.5 rounded-xl font-bold hover:bg-slate-300 transition-all">
+                                        BATAL
+                                    </button>
+                                    <button type="submit" id="btnSubmitFoto"
+                                        class="flex-1 bg-gradient-to-r from-orange-500 to-orange-600 text-white py-3.5 rounded-xl font-bold hover:shadow-lg shadow-orange-500/30 transition-all">
+                                        <i class="fas fa-save mr-2"></i> SIMPAN ARSIP FOTO
+                                    </button>
+                                </div>
+                            </form>
+                        </div>
+                        <!-- Preview Area -->
+                        <div class="lg:col-span-5">
+                            <div
+                                class="bg-white p-6 rounded-3xl shadow-xl border border-orange-50 h-full flex flex-col">
+                                <h3 class="font-bold text-slate-700 mb-4 flex items-center gap-2"><i
+                                        class="fas fa-eye text-orange-500"></i> Preview Foto</h3>
+                                <div id="preview-foto-container" class="preview-container flex-1"
+                                    onclick="zoomPreview('img')">
+                                    <div id="preview-placeholder" class="text-center text-slate-400">
+                                        <i class="fas fa-image text-6xl mb-3 opacity-30"></i>
+                                        <p class="text-sm font-medium">Belum ada foto dipilih</p>
+                                    </div>
+                                    <img id="preview-foto-img" class="preview-content" src="" alt="Preview">
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- SURAT SECTION -->
+                <div id="sec-surat" class="section hidden">
+                    <div class="mb-6">
+                        <h2 class="text-2xl font-bold flex items-center gap-3">
+                            <div class="p-2 bg-amber-100 rounded-lg text-amber-600"><i class="fas fa-file-alt"></i>
+                            </div>
+                            <span id="surat-form-title">Input Arsip Kegiatan</span>
+                        </h2>
+                        <p class="text-slate-500 mt-2 ml-12" id="surat-form-subtitle">Unggah dokumen administrasi</p>
+                    </div>
+                    <div class="grid grid-cols-1 lg:grid-cols-12 gap-8">
+                        <div class="lg:col-span-7">
+                            <form id="formSurat"
+                                class="bg-white p-6 md:p-8 rounded-3xl shadow-xl border border-amber-50">
+                                <!-- Hidden ID -->
+                                <input type="hidden" id="idSurat" name="id">
+                                <input type="hidden" id="linkSurat" name="link">
+                                <input type="hidden" id="bulanSurat" name="bulan">
+
+                                <div class="grid grid-cols-1 md:grid-cols-2 gap-5 mb-5">
+                                    <div>
+                                        <label class="block text-sm font-bold mb-2 text-slate-700">Kode
+                                            Klasifikasi</label>
+                                        <input type="text" name="kodeSurat" id="kodeSurat" required
+                                            class="w-full p-3 border border-slate-200 rounded-xl bg-slate-50 focus:bg-white transition-colors">
+                                    </div>
+                                    <div>
+                                        <label class="block text-sm font-bold mb-2 text-slate-700">Tanggal Arsip</label>
+                                        <input type="date" name="tanggalSurat" id="tanggalSurat" required
+                                            class="w-full p-3 border border-slate-200 rounded-xl bg-slate-50 focus:bg-white transition-colors">
+                                    </div>
+                                </div>
+                                <div class="mb-5">
+                                    <label class="block text-sm font-bold mb-2 text-slate-700">Uraian Arsip</label>
+                                    <textarea name="uraianSurat" id="uraianSurat" required
+                                        class="w-full p-3 border border-slate-200 rounded-xl h-24 bg-slate-50 focus:bg-white transition-colors"></textarea>
+                                </div>
+                                <div class="grid grid-cols-1 md:grid-cols-2 gap-5 mb-6">
+                                    <div>
+                                        <label class="block text-sm font-bold mb-2 text-slate-700">Tingkat
+                                            Perkembangan</label>
+                                        <select name="tingkat" id="tingkat"
+                                            class="w-full p-3 border border-slate-200 rounded-xl bg-slate-50 focus:bg-white transition-colors">
+                                            <option value="Asli">📄 Asli (Original)</option>
+                                            <option value="Copy">📑 Copy (Salinan)</option>
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label class="block text-sm font-bold mb-2 text-slate-700">File Dokumen</label>
+                                        <input type="file" id="fileSurat" accept=".pdf,.doc,.docx"
+                                            class="w-full text-sm text-slate-500 file:mr-4 file:py-2.5 file:px-4 file:rounded-xl file:border-0 file:text-sm file:font-semibold file:bg-amber-50 file:text-amber-600 hover:file:bg-amber-100 cursor-pointer">
+                                        <p class="text-xs text-slate-400 mt-1">*Biarkan kosong jika tidak ingin
+                                            mengganti file lama saat edit.</p>
+                                    </div>
+                                </div>
+                                <div class="flex gap-3">
+                                    <button type="button" onclick="resetForm('formSurat')" id="btnCancelSurat"
+                                        class="hidden flex-1 bg-slate-200 text-slate-700 py-3.5 rounded-xl font-bold hover:bg-slate-300 transition-all">
+                                        BATAL
+                                    </button>
+                                    <button type="submit" id="btnSubmitSurat"
+                                        class="flex-1 bg-gradient-to-r from-amber-500 to-amber-600 text-white py-3.5 rounded-xl font-bold hover:shadow-lg shadow-amber-500/30 transition-all">
+                                        <i class="fas fa-save mr-2"></i> SIMPAN ARSIP KEGIATAN
+                                    </button>
+                                </div>
+                            </form>
+                        </div>
+                        <!-- Preview Area (Placeholder for PDF logic) -->
+                        <div class="lg:col-span-5">
+                            <div
+                                class="bg-white p-6 rounded-3xl shadow-xl border border-amber-50 h-full flex flex-col justify-center text-center text-slate-400">
+                                <i class="fas fa-file-pdf text-6xl mb-4 opacity-30"></i>
+                                <p>Preview PDF tidak tersedia di mode edit.</p>
+                                <p class="text-xs mt-2">Silakan lihat di Daftar Arsip.</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- DAFTAR ARSIP FOTO -->
+                <div id="sec-list-foto" class="section hidden">
+                    <div class="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
+                        <div>
+                            <h2 class="text-2xl font-bold flex items-center gap-3">
+                                <div class="p-2 bg-blue-100 rounded-lg text-blue-600"><i class="fas fa-images"></i>
+                                </div>
+                                <span>Daftar Arsip Foto</span>
+                            </h2>
+                            <p class="text-slate-500 mt-1 ml-12">Kumpulan dokumentasi visual yang tersimpan</p>
+                        </div>
+                        <button onclick="showSection('foto')"
+                            class="bg-orange-500 text-white px-4 py-2 rounded-xl text-sm font-bold shadow hover:bg-orange-600 transition"><i
+                                class="fas fa-plus mr-2"></i> Tambah Baru</button>
+                    </div>
+                    <div id="list-foto-container"
+                        class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6"></div>
+                </div>
+
+                <!-- DAFTAR ARSIP SURAT -->
+                <div id="sec-list-surat" class="section hidden">
+                    <div class="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
+                        <div>
+                            <h2 class="text-2xl font-bold flex items-center gap-3">
+                                <div class="p-2 bg-indigo-100 rounded-lg text-indigo-600"><i
+                                        class="fas fa-folder-open"></i></div>
+                                <span>Daftar Arsip Kegiatan</span>
+                            </h2>
+                            <p class="text-slate-500 mt-1 ml-12">Dokumen administrasi dan surat resmi</p>
+                        </div>
+                        <button onclick="showSection('surat')"
+                            class="bg-amber-500 text-white px-4 py-2 rounded-xl text-sm font-bold shadow hover:bg-amber-600 transition"><i
+                                class="fas fa-plus mr-2"></i> Tambah Baru</button>
+                    </div>
+                    <div class="bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden">
+                        <div class="overflow-x-auto">
+                            <table class="w-full text-left border-collapse">
+                                <thead class="bg-slate-50 text-slate-600 text-xs uppercase font-bold">
+                                    <tr>
+                                        <th class="p-4">Kode</th>
+                                        <th class="p-4">Tanggal</th>
+                                        <th class="p-4">Uraian</th>
+                                        <th class="p-4">Tingkat</th>
+                                        <th class="p-4 text-center">Aksi</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="list-surat-container" class="divide-y divide-slate-100 text-sm"></tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+        </main>
+    </div>
+
+    <script>
+        // --- KONFIGURASI ---
+        const WEB_APP_URL = "https://script.google.com/macros/s/AKfycbyzXmsEt6pDWw-8PA80nuIRwNvP-1NqXbLQ76cbydmIq-DU4P3bSGh-XsA7_uWcbLHW/exec";
+
+        // --- HELPER FUNCTIONS ---
+        async function postData(payload) {
+            try {
+                const res = await fetch(WEB_APP_URL, {
+                    method: "POST",
+                    body: JSON.stringify(payload)
+                });
+                return await res.json();
+            } catch (error) {
+                console.error("Error:", error);
+                return { success: false, error: error.message };
+            }
+        }
+
+        function toggleLoading(show) {
+            document.getElementById('loading').style.display = show ? 'flex' : 'none';
+        }
+
+        function showToast(message, type = 'info') {
+            const container = document.getElementById('toast-container');
+            const toast = document.createElement('div');
+            toast.className = 'toast';
+            const color = type === 'error' ? 'text-red-500 border-red-500' : (type === 'success' ? 'text-green-500 border-green-500' : 'text-orange-500 border-orange-500');
+            const icon = type === 'error' ? 'fa-exclamation-circle' : (type === 'success' ? 'fa-check-circle' : 'fa-info-circle');
+            toast.innerHTML = `<i class="fas ${icon} ${color} text-xl"></i><span class="font-medium text-slate-700">${message}</span>`;
+            container.appendChild(toast);
+            setTimeout(() => { toast.style.animation = 'slideOut 0.3s forwards'; setTimeout(() => toast.remove(), 300); }, 3000);
+        }
+
+        function toggleSidebar() {
+            const sidebar = document.getElementById('sidebar');
+            const overlay = document.getElementById('sidebar-overlay');
+            const isClosed = sidebar.classList.contains('-translate-x-full');
+            if (isClosed) { sidebar.classList.remove('-translate-x-full'); overlay.classList.remove('hidden'); }
+            else { sidebar.classList.add('-translate-x-full'); overlay.classList.add('hidden'); }
+        }
+
+        function showSection(sectionId) {
+            document.querySelectorAll('.section').forEach(el => el.classList.add('hidden'));
+            document.querySelectorAll('.nav-btn').forEach(el => el.classList.remove('bg-orange-100', 'text-orange-600'));
+            document.getElementById('sec-' + sectionId).classList.remove('hidden');
+            const btn = document.getElementById('btn-' + sectionId);
+            if (btn) btn.classList.add('bg-orange-100', 'text-orange-600');
+            if (window.innerWidth < 768) { document.getElementById('sidebar').classList.add('-translate-x-full'); document.getElementById('sidebar-overlay').classList.add('hidden'); }
+            if (sectionId === 'dash') loadDashboard();
+            if (sectionId === 'list-foto') loadListFoto();
+            if (sectionId === 'list-surat') loadListSurat();
+        }
+
+        // --- AUTH ---
+        async function handleLogin() {
+            const email = document.getElementById('email').value;
+            const pass = document.getElementById('pass').value;
+            if (!email || !pass) return showToast('Isi email dan password!', 'error');
+            toggleLoading(true);
+            const res = await postData({ action: "login", email: email, password: pass });
+            if (res.success) {
+                document.getElementById('loginPage').classList.add('hidden');
+                document.getElementById('mainApp').classList.remove('hidden');
+                showToast('Login berhasil', 'success');
+                showSection('dash');
+            } else { showToast(res.error, 'error'); }
+            toggleLoading(false);
+        }
+
+        function handleLogout() {
+            if (confirm("Keluar dari sistem?")) {
+                document.getElementById('mainApp').classList.add('hidden');
+                document.getElementById('loginPage').classList.remove('hidden');
+                document.getElementById('email').value = ''; document.getElementById('pass').value = '';
+            }
+        }
+
+        // --- DASHBOARD ---
+        async function loadDashboard() {
+            const data = await postData({ action: "dashboard" });
+            if (data.success) { document.getElementById('count-foto').innerText = data.totalFoto; document.getElementById('count-surat').innerText = data.totalSurat; }
+        }
+
+        // --- FORM UTILS ---
+        function previewImage() {
+            const file = document.getElementById('fileFoto').files[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = function (e) {
+                    const img = document.getElementById('preview-foto-img');
+                    img.src = e.target.result; img.style.display = 'block';
+                    document.getElementById('preview-placeholder').style.display = 'none';
+                }
+                reader.readAsDataURL(file);
+            }
+        }
+
+        function resetForm(formId) {
+            document.getElementById(formId).reset();
+            document.getElementById('preview-foto-img').style.display = 'none';
+            document.getElementById('preview-placeholder').style.display = 'block';
+
+            // Reset Mode to Create
+            if (formId === 'formFoto') {
+                document.getElementById('idFoto').value = '';
+                document.getElementById('linkFoto').value = '';
+                document.getElementById('btnSubmitFoto').innerHTML = '<i class="fas fa-save mr-2"></i> SIMPAN ARSIP FOTO';
+                document.getElementById('btnCancelFoto').classList.add('hidden');
+                document.getElementById('foto-form-title').innerText = "Input Arsip Foto";
+            } else if (formId === 'formSurat') {
+                document.getElementById('idSurat').value = '';
+                document.getElementById('linkSurat').value = '';
+                document.getElementById('btnSubmitSurat').innerHTML = '<i class="fas fa-save mr-2"></i> SIMPAN ARSIP KEGIATAN';
+                document.getElementById('btnCancelSurat').classList.add('hidden');
+                document.getElementById('surat-form-title').innerText = "Input Arsip Kegiatan";
+            }
+        }
+
+        // --- CRUD FOTO ---
+
+        // Populate Form for Edit
+        window.editFoto = function (id) {
+            // Find data from DOM or re-fetch (using DOM from rendered list is faster for simple apps)
+            // Note: In real app, better to fetch specific ID from backend. Here we trust the current list view data.
+            // But to be safe, let's get the item from the global list variable if we stored it, or re-fetch.
+            // For simplicity in this structure, we need to re-fetch or have the data available. 
+            // Let's implement a simple fetch single or just read from existing data if we store it globally.
+            // Better approach: Refresh list and store in window variable? No, let's just fetch the list again and find ID.
+
+            loadListFoto(true).then(data => {
+                const item = data.find(d => d.id == id);
+                if (!item) return;
+
+                showSection('foto'); // Go to form
+
+                // Populate fields
+                document.getElementById('idFoto').value = item.id;
+                document.getElementById('linkFoto').value = item.link;
+                document.getElementById('bulanFoto').value = item.bulan;
+
+                document.getElementById('kodeFoto').value = item.kode;
+                document.getElementById('tanggalFoto').value = item.tanggal;
+                document.getElementById('kegiatanFoto').value = item.kegiatan;
+                document.getElementById('uraianFoto').value = item.uraian;
+                document.getElementById('fotografer').value = item.fotografer;
+
+                // Preview existing image
+                const img = document.getElementById('preview-foto-img');
+                img.src = `https://drive.google.com/thumbnail?id=${item.link.match(/[-\w]{25,}/)[0]}&sz=w800`;
+                img.style.display = 'block';
+                document.getElementById('preview-placeholder').style.display = 'none';
+
+                // Change UI to Edit Mode
+                document.getElementById('btnSubmitFoto').innerHTML = '<i class="fas fa-edit mr-2"></i> UPDATE ARSIP FOTO';
+                document.getElementById('btnSubmitFoto').classList.remove('from-orange-500', 'to-orange-600');
+                document.getElementById('btnSubmitFoto').classList.add('from-blue-500', 'to-blue-600');
+                document.getElementById('btnCancelFoto').classList.remove('hidden');
+                document.getElementById('foto-form-title').innerText = "Edit Arsip Foto";
+            });
+        }
+
+        document.getElementById('formFoto').onsubmit = async function (e) {
+            e.preventDefault();
+            const id = document.getElementById('idFoto').value;
+            const file = document.getElementById('fileFoto').files[0];
+
+            toggleLoading(true);
+
+            // Helper to prepare data
+            const preparePayload = (fileData) => ({
+                action: "saveFoto",
+                id: id ? parseInt(id) : 0,
+                file: fileData,
+                tanggal: document.getElementById('tanggalFoto').value,
+                kegiatan: document.getElementById('kegiatanFoto').value,
+                uraian: document.getElementById('uraianFoto').value,
+                kode: document.getElementById('kodeFoto').value,
+                fotografer: document.getElementById('fotografer').value,
+                link: document.getElementById('linkFoto').value,
+                bulan: document.getElementById('bulanFoto').value
+            });
+
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = async function () {
+                    const res = await postData(preparePayload(reader.result));
+                    handleFormResponse(res, 'formFoto');
+                };
+                reader.readAsDataURL(file);
+            } else {
+                // No new file uploaded, keep old data
+                const res = await postData(preparePayload(null));
+                handleFormResponse(res, 'formFoto');
+            }
+        };
+
+        // --- CRUD SURAT ---
+        window.editSurat = function (id) {
+            loadListSurat(true).then(data => {
+                const item = data.find(d => d.id == id);
+                if (!item) return;
+                showSection('surat');
+                document.getElementById('idSurat').value = item.id;
+                document.getElementById('linkSurat').value = item.link;
+                document.getElementById('bulanSurat').value = item.bulan;
+                document.getElementById('kodeSurat').value = item.kode;
+                document.getElementById('tanggalSurat').value = item.tanggal;
+                document.getElementById('uraianSurat').value = item.uraian;
+                document.getElementById('tingkat').value = item.tingkat;
+
+                document.getElementById('btnSubmitSurat').innerHTML = '<i class="fas fa-edit mr-2"></i> UPDATE ARSIP KEGIATAN';
+                document.getElementById('btnSubmitSurat').classList.remove('from-amber-500', 'to-amber-600');
+                document.getElementById('btnSubmitSurat').classList.add('from-blue-500', 'to-blue-600');
+                document.getElementById('btnCancelSurat').classList.remove('hidden');
+                document.getElementById('surat-form-title').innerText = "Edit Arsip Kegiatan";
+            });
+        }
+
+        document.getElementById('formSurat').onsubmit = async function (e) {
+            e.preventDefault();
+            const id = document.getElementById('idSurat').value;
+            const file = document.getElementById('fileSurat').files[0];
+            toggleLoading(true);
+
+            const preparePayload = (fileData) => ({
+                action: "saveSurat",
+                id: id ? parseInt(id) : 0,
+                file: fileData,
+                tanggal: document.getElementById('tanggalSurat').value,
+                uraian: document.getElementById('uraianSurat').value,
+                kode: document.getElementById('kodeSurat').value,
+                tingkat: document.getElementById('tingkat').value,
+                link: document.getElementById('linkSurat').value,
+                bulan: document.getElementById('bulanSurat').value
+            });
+
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = async function () {
+                    const res = await postData(preparePayload(reader.result));
+                    handleFormResponse(res, 'formSurat');
+                };
+                reader.readAsDataURL(file);
+            } else {
+                const res = await postData(preparePayload(null));
+                handleFormResponse(res, 'formSurat');
+            }
+        };
+
+        function handleFormResponse(res, formId) {
+            if (res.success) {
+                showToast(res.message, 'success');
+                resetForm(formId);
+                if (formId === 'formFoto') loadListFoto();
+                if (formId === 'formSurat') loadListSurat();
+                showSection(formId === 'formFoto' ? 'list-foto' : 'list-surat');
+            } else { showToast(res.error || 'Gagal menyimpan', 'error'); }
+            toggleLoading(false);
+        }
+
+        // --- DELETE HANDLER ---
+        let deleteAction = null;
+
+        window.confirmDelete = function (type, id, link) {
+            deleteAction = async () => {
+                toggleLoading(true);
+                const res = await postData({ action: type === 'foto' ? 'deleteFoto' : 'deleteSurat', rowIndex: id, link: link });
+                if (res.success) {
+                    showToast('Data berhasil dihapus', 'success');
+                    if (type === 'foto') loadListFoto(); else loadListSurat();
+                } else {
+                    showToast(res.error, 'error');
+                }
+                toggleLoading(false);
+                closeConfirmModal();
+            };
+            document.getElementById('confirm-modal').classList.remove('hidden');
+        }
+
+        document.getElementById('confirm-delete-btn').onclick = function () {
+            if (deleteAction) deleteAction();
+        };
+
+        function closeConfirmModal() {
+            document.getElementById('confirm-modal').classList.add('hidden');
+            deleteAction = null;
+        }
+
+        // --- LISTING & RENDERING ---
+
+        // Global Cache for Edit Data fetching (Simple implementation)
+        let currentListFoto = [];
+        let currentListSurat = [];
+
+        async function loadListFoto(silent = false) {
+            if (!silent) toggleLoading(true);
+            const container = document.getElementById('list-foto-container');
+            const res = await postData({ action: "listFoto" });
+
+            if (!silent) {
+                container.innerHTML = '<div class="col-span-full text-center py-10"><i class="fas fa-spinner fa-spin text-2xl text-orange-500"></i></div>';
+            }
+
+            currentListFoto = res.data || [];
+            container.innerHTML = '';
+
+            if (currentListFoto.length > 0) {
+                currentListFoto.forEach(item => {
+                    const thumbUrl = `https://drive.google.com/thumbnail?id=${item.link.match(/[-\w]{25,}/)[0]}&sz=w400`;
+                    const card = `
+                        <div class="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden card-hover flex flex-col">
+                            <div class="h-48 bg-slate-200 relative group cursor-pointer" onclick="openZoomModal('${item.link}')">
+                                <img src="${thumbUrl}" class="w-full h-full object-cover transition duration-500 group-hover:scale-110" alt="${item.kegiatan}">
+                                <div class="absolute inset-0 bg-black/20 group-hover:bg-black/40 transition"></div>
+                                <div class="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition">
+                                    <i class="fas fa-search-plus text-white text-2xl drop-shadow-lg"></i>
+                                </div>
+                            </div>
+                            <div class="p-4 flex-1 flex flex-col">
+                                <div class="flex justify-between items-start mb-2">
+                                    <span class="bg-orange-100 text-orange-700 text-[10px] font-bold px-2 py-1 rounded uppercase tracking-wide">${item.kode}</span>
+                                    <span class="text-xs text-slate-400">${item.tanggal}</span>
+                                </div>
+                                <h3 class="font-bold text-slate-800 text-sm mb-2 line-clamp-2">${item.kegiatan}</h3>
+                                <p class="text-xs text-slate-500 line-clamp-2 mb-3">${item.uraian}</p>
+                                <div class="mt-auto pt-3 border-t border-slate-100 flex justify-between items-center text-xs text-slate-400">
+                                    <span><i class="fas fa-user-camera mr-1"></i> ${item.fotografer}</span>
+                                    <span>${item.size}</span>
+                                </div>
+                            </div>
+                            <div class="px-4 pb-4 flex gap-2">
+                                <button onclick="editFoto(${item.id})" class="flex-1 bg-blue-50 text-blue-600 py-2 rounded-lg text-xs font-bold hover:bg-blue-100 transition border border-blue-100">
+                                    <i class="fas fa-edit"></i> Edit
+                                </button>
+                                <a href="${item.link}" target="_blank" class="flex-1 bg-slate-50 text-slate-600 text-center py-2 rounded-lg text-xs font-bold hover:bg-slate-100 transition border border-slate-200">
+                                    <i class="fas fa-external-link-alt"></i> File
+                                </a>
+                                <button onclick="confirmDelete('foto', ${item.id}, '${item.link}')" class="bg-red-50 text-red-600 w-8 rounded-lg text-xs font-bold hover:bg-red-100 transition border border-red-100">
+                                    <i class="fas fa-trash"></i>
+                                </button>
+                            </div>
+                        </div>
+                    `;
+                    container.insertAdjacentHTML('beforeend', card);
+                });
+            } else {
+                container.innerHTML = `<div class="col-span-full text-center py-10 text-slate-400 bg-white rounded-3xl border border-dashed border-slate-300"><p>Belum ada data arsip foto.</p></div>`;
+            }
+            if (!silent) toggleLoading(false);
+            return currentListFoto;
+        }
+
+        async function loadListSurat(silent = false) {
+            if (!silent) toggleLoading(true);
+            const container = document.getElementById('list-surat-container');
+            const res = await postData({ action: "listSurat" });
+
+            if (!silent) {
+                container.innerHTML = '<tr><td colspan="5" class="p-8 text-center"><i class="fas fa-spinner fa-spin text-xl text-amber-500"></i></td></tr>';
+            }
+
+            currentListSurat = res.data || [];
+            container.innerHTML = '';
+
+            if (currentListSurat.length > 0) {
+                currentListSurat.forEach(item => {
+                    const row = `
+                        <tr class="hover:bg-slate-50 transition border-b border-slate-100 last:border-0">
+                            <td class="p-4 font-mono text-xs font-bold text-slate-600">${item.kode}</td>
+                            <td class="p-4 text-slate-600">${item.tanggal}</td>
+                            <td class="p-4"><div class="font-medium text-slate-800 text-sm">${item.uraian}</div></td>
+                            <td class="p-4"><span class="px-2 py-1 rounded text-xs font-bold ${item.tingkat === 'Asli' ? 'bg-green-100 text-green-700' : 'bg-blue-100 text-blue-700'}">${item.tingkat}</span></td>
+                            <td class="p-4 text-center">
+                                <div class="flex items-center justify-center gap-2">
+                                    <button onclick="editSurat(${item.id})" class="w-8 h-8 rounded-full bg-blue-50 text-blue-600 hover:bg-blue-100 transition" title="Edit">
+                                        <i class="fas fa-edit text-xs"></i>
+                                    </button>
+                                    <a href="${item.link}" target="_blank" class="w-8 h-8 rounded-full bg-slate-100 text-slate-600 hover:bg-slate-200 transition" title="Lihat Dokumen">
+                                        <i class="fas fa-external-link-alt text-xs"></i>
+                                    </a>
+                                    <button onclick="confirmDelete('surat', ${item.id}, '${item.link}')" class="w-8 h-8 rounded-full bg-red-50 text-red-600 hover:bg-red-100 transition" title="Hapus">
+                                        <i class="fas fa-trash text-xs"></i>
+                                    </button>
+                                </div>
+                            </td>
+                        </tr>
+                    `;
+                    container.insertAdjacentHTML('beforeend', row);
+                });
+            } else {
+                container.innerHTML = `<tr><td colspan="5" class="p-8 text-center text-slate-400">Belum ada data arsip kegiatan.</td></tr>`;
+            }
+            if (!silent) toggleLoading(false);
+            return currentListSurat;
+        }
+
+        // --- ZOOM MODAL ---
+        function openZoomModal(url) {
+            const modal = document.getElementById('zoom-modal');
+            const img = document.getElementById('zoom-img');
+            const pdf = document.getElementById('zoom-pdf');
+            const id = url.match(/[-\w]{25,}/)[0];
+
+            // Check if likely PDF based on context or simple check
+            // Since we store mixed types in listFoto usually just images, but let's be safe
+            img.classList.remove('hidden'); pdf.classList.add('hidden');
+            img.src = `https://drive.google.com/thumbnail?id=${id}&sz=w1000`;
+            modal.style.display = 'block';
+        }
+        function closeZoom() { document.getElementById('zoom-modal').style.display = 'none'; document.getElementById('zoom-pdf').src = ''; }
+        function zoomPreview(type) {
+            const img = document.getElementById('preview-foto-img');
+            if (img.src && img.style.display !== 'none') openZoomModal(img.src);
+        }
+
+    </script>
+</body>
+
+</html>
