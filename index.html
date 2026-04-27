@@ -68,6 +68,16 @@
             }
         }
 
+        @keyframes slideOut {
+            from {
+                transform: translateX(0);
+            }
+
+            to {
+                transform: translateX(100%);
+            }
+        }
+
         #sidebar {
             transition: transform 0.3s ease-in-out;
         }
@@ -96,6 +106,44 @@
             height: 100%;
             object-fit: contain;
             display: none;
+        }
+
+        /* Detail Popup Modal */
+        #detail-modal {
+            display: none;
+            position: fixed;
+            z-index: 20001;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.8);
+            backdrop-filter: blur(8px);
+            justify-content: center;
+            align-items: center;
+        }
+
+        #detail-content {
+            background: white;
+            border-radius: 24px;
+            max-width: 90%;
+            width: 600px;
+            max-height: 85vh;
+            overflow-y: auto;
+            position: relative;
+            animation: modalSlideIn 0.3s ease;
+        }
+
+        @keyframes modalSlideIn {
+            from {
+                transform: translateY(-50px);
+                opacity: 0;
+            }
+
+            to {
+                transform: translateY(0);
+                opacity: 1;
+            }
         }
 
         #zoom-modal {
@@ -129,6 +177,29 @@
             transform: translateY(-5px);
             box-shadow: 0 20px 25px -12px rgba(0, 0, 0, 0.1);
         }
+
+        /* Pagination Styles */
+        .pagination-btn {
+            transition: all 0.2s ease;
+        }
+
+        .pagination-btn:hover:not(:disabled) {
+            transform: translateY(-1px);
+        }
+
+        .line-clamp-2 {
+            display: -webkit-box;
+            -webkit-line-clamp: 2;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
+        }
+
+        .line-clamp-3 {
+            display: -webkit-box;
+            -webkit-line-clamp: 3;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
+        }
     </style>
 </head>
 
@@ -153,6 +224,25 @@
             class="absolute top-5 right-8 text-white text-5xl font-bold cursor-pointer hover:text-orange-500 transition">&times;</span>
         <img class="hidden" id="zoom-img" src="" alt="Zoomed Image">
         <iframe class="hidden w-full h-full bg-white rounded-lg" id="zoom-pdf"></iframe>
+    </div>
+
+    <!-- DETAIL POPUP MODAL -->
+    <div id="detail-modal" onclick="closeDetailModal()">
+        <div id="detail-content" onclick="event.stopPropagation()">
+            <div
+                class="sticky top-0 bg-white border-b border-slate-100 p-4 flex justify-between items-center rounded-t-2xl">
+                <h3 class="text-xl font-bold text-slate-800 flex items-center gap-2">
+                    <i class="fas fa-info-circle text-orange-500"></i>
+                    Detail Arsip
+                </h3>
+                <button onclick="closeDetailModal()" class="text-slate-400 hover:text-slate-600 transition">
+                    <i class="fas fa-times text-2xl"></i>
+                </button>
+            </div>
+            <div class="p-6" id="detail-content-body">
+                <!-- Dynamic content will be inserted here -->
+            </div>
+        </div>
     </div>
 
     <!-- CONFIRMATION MODAL -->
@@ -497,7 +587,7 @@
                     </div>
                 </div>
 
-                <!-- DAFTAR ARSIP FOTO -->
+                <!-- DAFTAR ARSIP FOTO dengan Paginasi -->
                 <div id="sec-list-foto" class="section hidden">
                     <div class="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
                         <div>
@@ -514,9 +604,11 @@
                     </div>
                     <div id="list-foto-container"
                         class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6"></div>
+                    <!-- Pagination for Foto -->
+                    <div id="pagination-foto" class="flex justify-center items-center gap-2 mt-8 hidden"></div>
                 </div>
 
-                <!-- DAFTAR ARSIP SURAT -->
+                <!-- DAFTAR ARSIP SURAT dengan Paginasi -->
                 <div id="sec-list-surat" class="section hidden">
                     <div class="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
                         <div>
@@ -547,6 +639,8 @@
                             </table>
                         </div>
                     </div>
+                    <!-- Pagination for Surat -->
+                    <div id="pagination-surat" class="flex justify-center items-center gap-2 mt-8 hidden"></div>
                 </div>
 
             </div>
@@ -557,17 +651,66 @@
         // --- KONFIGURASI ---
         const WEB_APP_URL = "https://script.google.com/macros/s/AKfycbyzXmsEt6pDWw-8PA80nuIRwNvP-1NqXbLQ76cbydmIq-DU4P3bSGh-XsA7_uWcbLHW/exec";
 
+        // Cache untuk menyimpan data
+        let dataCache = {
+            foto: null,
+            surat: null,
+            lastFetch: {
+                foto: 0,
+                surat: 0
+            }
+        };
+        const CACHE_DURATION = 5 * 60 * 1000; // 5 menit cache
+
+        // Pagination state
+        let currentPage = {
+            foto: 1,
+            surat: 1
+        };
+        const ITEMS_PER_PAGE = 12;
+
         // --- HELPER FUNCTIONS ---
-        async function postData(payload) {
+        async function postData(payload, useCache = false) {
             try {
+                // Untuk action list, cek cache
+                if (useCache && (payload.action === "listFoto" || payload.action === "listSurat")) {
+                    const cacheKey = payload.action === "listFoto" ? 'foto' : 'surat';
+                    const now = Date.now();
+                    if (dataCache[cacheKey] && (now - dataCache.lastFetch[cacheKey]) < CACHE_DURATION) {
+                        console.log(`Using cached data for ${payload.action}`);
+                        return { success: true, data: dataCache[cacheKey] };
+                    }
+                }
+
                 const res = await fetch(WEB_APP_URL, {
                     method: "POST",
                     body: JSON.stringify(payload)
                 });
-                return await res.json();
+                const result = await res.json();
+
+                // Update cache untuk list actions
+                if (result.success && (payload.action === "listFoto" || payload.action === "listSurat")) {
+                    const cacheKey = payload.action === "listFoto" ? 'foto' : 'surat';
+                    dataCache[cacheKey] = result.data;
+                    dataCache.lastFetch[cacheKey] = Date.now();
+                }
+
+                return result;
             } catch (error) {
                 console.error("Error:", error);
                 return { success: false, error: error.message };
+            }
+        }
+
+        // Invalidate cache setelah CRUD operation
+        function invalidateCache(type) {
+            if (type === 'foto' || type === 'all') {
+                dataCache.foto = null;
+                dataCache.lastFetch.foto = 0;
+            }
+            if (type === 'surat' || type === 'all') {
+                dataCache.surat = null;
+                dataCache.lastFetch.surat = 0;
             }
         }
 
@@ -583,15 +726,23 @@
             const icon = type === 'error' ? 'fa-exclamation-circle' : (type === 'success' ? 'fa-check-circle' : 'fa-info-circle');
             toast.innerHTML = `<i class="fas ${icon} ${color} text-xl"></i><span class="font-medium text-slate-700">${message}</span>`;
             container.appendChild(toast);
-            setTimeout(() => { toast.style.animation = 'slideOut 0.3s forwards'; setTimeout(() => toast.remove(), 300); }, 3000);
+            setTimeout(() => {
+                toast.style.animation = 'slideOut 0.3s forwards';
+                setTimeout(() => toast.remove(), 300);
+            }, 3000);
         }
 
         function toggleSidebar() {
             const sidebar = document.getElementById('sidebar');
             const overlay = document.getElementById('sidebar-overlay');
             const isClosed = sidebar.classList.contains('-translate-x-full');
-            if (isClosed) { sidebar.classList.remove('-translate-x-full'); overlay.classList.remove('hidden'); }
-            else { sidebar.classList.add('-translate-x-full'); overlay.classList.add('hidden'); }
+            if (isClosed) {
+                sidebar.classList.remove('-translate-x-full');
+                overlay.classList.remove('hidden');
+            } else {
+                sidebar.classList.add('-translate-x-full');
+                overlay.classList.add('hidden');
+            }
         }
 
         function showSection(sectionId) {
@@ -600,10 +751,13 @@
             document.getElementById('sec-' + sectionId).classList.remove('hidden');
             const btn = document.getElementById('btn-' + sectionId);
             if (btn) btn.classList.add('bg-orange-100', 'text-orange-600');
-            if (window.innerWidth < 768) { document.getElementById('sidebar').classList.add('-translate-x-full'); document.getElementById('sidebar-overlay').classList.add('hidden'); }
+            if (window.innerWidth < 768) {
+                document.getElementById('sidebar').classList.add('-translate-x-full');
+                document.getElementById('sidebar-overlay').classList.add('hidden');
+            }
             if (sectionId === 'dash') loadDashboard();
-            if (sectionId === 'list-foto') loadListFoto();
-            if (sectionId === 'list-surat') loadListSurat();
+            if (sectionId === 'list-foto') loadListFotoWithPagination(1);
+            if (sectionId === 'list-surat') loadListSuratWithPagination(1);
         }
 
         // --- AUTH ---
@@ -618,22 +772,30 @@
                 document.getElementById('mainApp').classList.remove('hidden');
                 showToast('Login berhasil', 'success');
                 showSection('dash');
-            } else { showToast(res.error, 'error'); }
+            } else {
+                showToast(res.error, 'error');
+            }
             toggleLoading(false);
         }
 
         function handleLogout() {
             if (confirm("Keluar dari sistem?")) {
+                // Reset cache saat logout
+                dataCache = { foto: null, surat: null, lastFetch: { foto: 0, surat: 0 } };
                 document.getElementById('mainApp').classList.add('hidden');
                 document.getElementById('loginPage').classList.remove('hidden');
-                document.getElementById('email').value = ''; document.getElementById('pass').value = '';
+                document.getElementById('email').value = '';
+                document.getElementById('pass').value = '';
             }
         }
 
         // --- DASHBOARD ---
         async function loadDashboard() {
             const data = await postData({ action: "dashboard" });
-            if (data.success) { document.getElementById('count-foto').innerText = data.totalFoto; document.getElementById('count-surat').innerText = data.totalSurat; }
+            if (data.success) {
+                document.getElementById('count-foto').innerText = data.totalFoto;
+                document.getElementById('count-surat').innerText = data.totalSurat;
+            }
         }
 
         // --- FORM UTILS ---
@@ -643,7 +805,8 @@
                 const reader = new FileReader();
                 reader.onload = function (e) {
                     const img = document.getElementById('preview-foto-img');
-                    img.src = e.target.result; img.style.display = 'block';
+                    img.src = e.target.result;
+                    img.style.display = 'block';
                     document.getElementById('preview-placeholder').style.display = 'none';
                 }
                 reader.readAsDataURL(file);
@@ -660,35 +823,29 @@
                 document.getElementById('idFoto').value = '';
                 document.getElementById('linkFoto').value = '';
                 document.getElementById('btnSubmitFoto').innerHTML = '<i class="fas fa-save mr-2"></i> SIMPAN ARSIP FOTO';
+                document.getElementById('btnSubmitFoto').classList.remove('from-blue-500', 'to-blue-600');
+                document.getElementById('btnSubmitFoto').classList.add('from-orange-500', 'to-orange-600');
                 document.getElementById('btnCancelFoto').classList.add('hidden');
                 document.getElementById('foto-form-title').innerText = "Input Arsip Foto";
             } else if (formId === 'formSurat') {
                 document.getElementById('idSurat').value = '';
                 document.getElementById('linkSurat').value = '';
                 document.getElementById('btnSubmitSurat').innerHTML = '<i class="fas fa-save mr-2"></i> SIMPAN ARSIP KEGIATAN';
+                document.getElementById('btnSubmitSurat').classList.remove('from-blue-500', 'to-blue-600');
+                document.getElementById('btnSubmitSurat').classList.add('from-amber-500', 'to-amber-600');
                 document.getElementById('btnCancelSurat').classList.add('hidden');
                 document.getElementById('surat-form-title').innerText = "Input Arsip Kegiatan";
             }
         }
 
         // --- CRUD FOTO ---
-
-        // Populate Form for Edit
         window.editFoto = function (id) {
-            // Find data from DOM or re-fetch (using DOM from rendered list is faster for simple apps)
-            // Note: In real app, better to fetch specific ID from backend. Here we trust the current list view data.
-            // But to be safe, let's get the item from the global list variable if we stored it, or re-fetch.
-            // For simplicity in this structure, we need to re-fetch or have the data available. 
-            // Let's implement a simple fetch single or just read from existing data if we store it globally.
-            // Better approach: Refresh list and store in window variable? No, let's just fetch the list again and find ID.
-
-            loadListFoto(true).then(data => {
-                const item = data.find(d => d.id == id);
+            loadListFotoWithPagination(1, true).then(allData => {
+                const item = allData.find(d => d.id == id);
                 if (!item) return;
 
-                showSection('foto'); // Go to form
+                showSection('foto');
 
-                // Populate fields
                 document.getElementById('idFoto').value = item.id;
                 document.getElementById('linkFoto').value = item.link;
                 document.getElementById('bulanFoto').value = item.bulan;
@@ -701,17 +858,27 @@
 
                 // Preview existing image
                 const img = document.getElementById('preview-foto-img');
-                img.src = `https://drive.google.com/thumbnail?id=${item.link.match(/[-\w]{25,}/)[0]}&sz=w800`;
+                const fileId = extractGoogleDriveId(item.link);
+                if (fileId) {
+                    img.src = `https://drive.google.com/thumbnail?id=${fileId}&sz=w800`;
+                } else {
+                    img.src = item.link;
+                }
                 img.style.display = 'block';
                 document.getElementById('preview-placeholder').style.display = 'none';
 
-                // Change UI to Edit Mode
                 document.getElementById('btnSubmitFoto').innerHTML = '<i class="fas fa-edit mr-2"></i> UPDATE ARSIP FOTO';
                 document.getElementById('btnSubmitFoto').classList.remove('from-orange-500', 'to-orange-600');
                 document.getElementById('btnSubmitFoto').classList.add('from-blue-500', 'to-blue-600');
                 document.getElementById('btnCancelFoto').classList.remove('hidden');
                 document.getElementById('foto-form-title').innerText = "Edit Arsip Foto";
             });
+        }
+
+        function extractGoogleDriveId(url) {
+            if (!url) return null;
+            const match = url.match(/[-\w]{25,}/);
+            return match ? match[0] : null;
         }
 
         document.getElementById('formFoto').onsubmit = async function (e) {
@@ -721,7 +888,6 @@
 
             toggleLoading(true);
 
-            // Helper to prepare data
             const preparePayload = (fileData) => ({
                 action: "saveFoto",
                 id: id ? parseInt(id) : 0,
@@ -739,20 +905,19 @@
                 const reader = new FileReader();
                 reader.onload = async function () {
                     const res = await postData(preparePayload(reader.result));
-                    handleFormResponse(res, 'formFoto');
+                    handleFormResponse(res, 'formFoto', 'foto');
                 };
                 reader.readAsDataURL(file);
             } else {
-                // No new file uploaded, keep old data
                 const res = await postData(preparePayload(null));
-                handleFormResponse(res, 'formFoto');
+                handleFormResponse(res, 'formFoto', 'foto');
             }
         };
 
         // --- CRUD SURAT ---
         window.editSurat = function (id) {
-            loadListSurat(true).then(data => {
-                const item = data.find(d => d.id == id);
+            loadListSuratWithPagination(1, true).then(allData => {
+                const item = allData.find(d => d.id == id);
                 if (!item) return;
                 showSection('surat');
                 document.getElementById('idSurat').value = item.id;
@@ -793,23 +958,27 @@
                 const reader = new FileReader();
                 reader.onload = async function () {
                     const res = await postData(preparePayload(reader.result));
-                    handleFormResponse(res, 'formSurat');
+                    handleFormResponse(res, 'formSurat', 'surat');
                 };
                 reader.readAsDataURL(file);
             } else {
                 const res = await postData(preparePayload(null));
-                handleFormResponse(res, 'formSurat');
+                handleFormResponse(res, 'formSurat', 'surat');
             }
         };
 
-        function handleFormResponse(res, formId) {
+        function handleFormResponse(res, formId, type) {
             if (res.success) {
                 showToast(res.message, 'success');
+                invalidateCache(type);
                 resetForm(formId);
-                if (formId === 'formFoto') loadListFoto();
-                if (formId === 'formSurat') loadListSurat();
+                if (formId === 'formFoto') loadListFotoWithPagination(1);
+                if (formId === 'formSurat') loadListSuratWithPagination(1);
+                loadDashboard(); // Update dashboard counts
                 showSection(formId === 'formFoto' ? 'list-foto' : 'list-surat');
-            } else { showToast(res.error || 'Gagal menyimpan', 'error'); }
+            } else {
+                showToast(res.error || 'Gagal menyimpan', 'error');
+            }
             toggleLoading(false);
         }
 
@@ -819,10 +988,20 @@
         window.confirmDelete = function (type, id, link) {
             deleteAction = async () => {
                 toggleLoading(true);
-                const res = await postData({ action: type === 'foto' ? 'deleteFoto' : 'deleteSurat', rowIndex: id, link: link });
+                const res = await postData({
+                    action: type === 'foto' ? 'deleteFoto' : 'deleteSurat',
+                    rowIndex: id,
+                    link: link
+                });
                 if (res.success) {
                     showToast('Data berhasil dihapus', 'success');
-                    if (type === 'foto') loadListFoto(); else loadListSurat();
+                    invalidateCache(type);
+                    if (type === 'foto') {
+                        loadListFotoWithPagination(currentPage.foto);
+                    } else {
+                        loadListSuratWithPagination(currentPage.surat);
+                    }
+                    loadDashboard(); // Update dashboard counts
                 } else {
                     showToast(res.error, 'error');
                 }
@@ -841,31 +1020,91 @@
             deleteAction = null;
         }
 
-        // --- LISTING & RENDERING ---
+        // --- DETAIL POPUP ---
+        window.showDetail = function (type, item) {
+            const modal = document.getElementById('detail-modal');
+            const body = document.getElementById('detail-content-body');
 
-        // Global Cache for Edit Data fetching (Simple implementation)
-        let currentListFoto = [];
-        let currentListSurat = [];
+            const fileId = extractGoogleDriveId(item.link);
+            const previewHtml = type === 'foto' && fileId ?
+                `<div class="mb-4 rounded-xl overflow-hidden bg-slate-100">
+                    <img src="https://drive.google.com/thumbnail?id=${fileId}&sz=w800" 
+                         class="w-full object-cover cursor-pointer" 
+                         onclick="openZoomModal('${item.link}')"
+                         alt="${item.kegiatan || item.uraian}">
+                </div>` :
+                `<div class="mb-4 p-8 bg-slate-100 rounded-xl text-center">
+                    <i class="fas fa-file-pdf text-6xl text-red-400 mb-3"></i>
+                    <p class="text-sm text-slate-500">Klik tombol di bawah untuk melihat dokumen</p>
+                </div>`;
 
-        async function loadListFoto(silent = false) {
-            if (!silent) toggleLoading(true);
+            body.innerHTML = `
+                <div class="space-y-4">
+                    ${previewHtml}
+                    <div class="grid grid-cols-2 gap-3 text-sm">
+                        <div class="text-slate-500">Kode Arsip</div>
+                        <div class="font-medium text-slate-800">${item.kode || '-'}</div>
+                        
+                        <div class="text-slate-500">Tanggal</div>
+                        <div class="font-medium text-slate-800">${item.tanggal || '-'}</div>
+                        
+                        <div class="text-slate-500">${type === 'foto' ? 'Kegiatan' : 'Uraian'}</div>
+                        <div class="font-medium text-slate-800">${item.kegiatan || item.uraian || '-'}</div>
+                        
+                        ${type === 'foto' ? `
+                            <div class="text-slate-500">Uraian</div>
+                            <div class="font-medium text-slate-800">${item.uraian || '-'}</div>
+                            <div class="text-slate-500">Fotografer</div>
+                            <div class="font-medium text-slate-800">${item.fotografer || '-'}</div>
+                        ` : `
+                            <div class="text-slate-500">Tingkat</div>
+                            <div class="font-medium">
+                                <span class="px-2 py-1 rounded text-xs font-bold ${item.tingkat === 'Asli' ? 'bg-green-100 text-green-700' : 'bg-blue-100 text-blue-700'}">
+                                    ${item.tingkat || '-'}
+                                </span>
+                            </div>
+                        `}
+                    </div>
+                    <div class="flex gap-3 pt-4 border-t border-slate-100">
+                        <a href="${item.link}" target="_blank" 
+                           class="flex-1 bg-orange-500 text-white text-center py-2.5 rounded-xl font-bold hover:bg-orange-600 transition">
+                            <i class="fas fa-external-link-alt mr-2"></i> Buka File
+                        </a>
+                        <button onclick="closeDetailModal(); ${type === 'foto' ? `editFoto(${item.id})` : `editSurat(${item.id})`}" 
+                                class="flex-1 bg-blue-500 text-white text-center py-2.5 rounded-xl font-bold hover:bg-blue-600 transition">
+                            <i class="fas fa-edit mr-2"></i> Edit
+                        </button>
+                    </div>
+                </div>
+            `;
+            modal.style.display = 'flex';
+        }
+
+        function closeDetailModal() {
+            document.getElementById('detail-modal').style.display = 'none';
+        }
+
+        // --- LISTING DENGAN PAGINATION ---
+        async function loadListFotoWithPagination(page = 1, returnFullData = false) {
+            toggleLoading(true);
+            const res = await postData({ action: "listFoto" }, true);
+
+            const allData = res.data || [];
+            const totalPages = Math.ceil(allData.length / ITEMS_PER_PAGE);
+            const start = (page - 1) * ITEMS_PER_PAGE;
+            const paginatedData = allData.slice(start, start + ITEMS_PER_PAGE);
+
             const container = document.getElementById('list-foto-container');
-            const res = await postData({ action: "listFoto" });
-
-            if (!silent) {
-                container.innerHTML = '<div class="col-span-full text-center py-10"><i class="fas fa-spinner fa-spin text-2xl text-orange-500"></i></div>';
-            }
-
-            currentListFoto = res.data || [];
             container.innerHTML = '';
 
-            if (currentListFoto.length > 0) {
-                currentListFoto.forEach(item => {
-                    const thumbUrl = `https://drive.google.com/thumbnail?id=${item.link.match(/[-\w]{25,}/)[0]}&sz=w400`;
+            if (paginatedData.length > 0) {
+                paginatedData.forEach(item => {
+                    const fileId = extractGoogleDriveId(item.link);
+                    const thumbUrl = fileId ? `https://drive.google.com/thumbnail?id=${fileId}&sz=w400` : item.link;
                     const card = `
-                        <div class="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden card-hover flex flex-col">
-                            <div class="h-48 bg-slate-200 relative group cursor-pointer" onclick="openZoomModal('${item.link}')">
-                                <img src="${thumbUrl}" class="w-full h-full object-cover transition duration-500 group-hover:scale-110" alt="${item.kegiatan}">
+                        <div class="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden card-hover flex flex-col cursor-pointer transition-all hover:shadow-md" onclick="showDetail('foto', ${JSON.stringify(item).replace(/"/g, '&quot;')})">
+                            <div class="h-48 bg-slate-200 relative group overflow-hidden">
+                                <img src="${thumbUrl}" class="w-full h-full object-cover transition duration-500 group-hover:scale-110" alt="${item.kegiatan}" loading="lazy">
                                 <div class="absolute inset-0 bg-black/20 group-hover:bg-black/40 transition"></div>
                                 <div class="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition">
                                     <i class="fas fa-search-plus text-white text-2xl drop-shadow-lg"></i>
@@ -880,10 +1119,10 @@
                                 <p class="text-xs text-slate-500 line-clamp-2 mb-3">${item.uraian}</p>
                                 <div class="mt-auto pt-3 border-t border-slate-100 flex justify-between items-center text-xs text-slate-400">
                                     <span><i class="fas fa-user-camera mr-1"></i> ${item.fotografer}</span>
-                                    <span>${item.size}</span>
+                                    <span>${item.size || ''}</span>
                                 </div>
                             </div>
-                            <div class="px-4 pb-4 flex gap-2">
+                            <div class="px-4 pb-4 flex gap-2" onclick="event.stopPropagation()">
                                 <button onclick="editFoto(${item.id})" class="flex-1 bg-blue-50 text-blue-600 py-2 rounded-lg text-xs font-bold hover:bg-blue-100 transition border border-blue-100">
                                     <i class="fas fa-edit"></i> Edit
                                 </button>
@@ -898,34 +1137,43 @@
                     `;
                     container.insertAdjacentHTML('beforeend', card);
                 });
+
+                // Render pagination
+                renderPagination('foto', page, totalPages);
             } else {
                 container.innerHTML = `<div class="col-span-full text-center py-10 text-slate-400 bg-white rounded-3xl border border-dashed border-slate-300"><p>Belum ada data arsip foto.</p></div>`;
+                document.getElementById('pagination-foto').classList.add('hidden');
             }
-            if (!silent) toggleLoading(false);
-            return currentListFoto;
+
+            toggleLoading(false);
+
+            if (returnFullData) {
+                return allData;
+            }
+            return paginatedData;
         }
 
-        async function loadListSurat(silent = false) {
-            if (!silent) toggleLoading(true);
+        async function loadListSuratWithPagination(page = 1, returnFullData = false) {
+            toggleLoading(true);
+            const res = await postData({ action: "listSurat" }, true);
+
+            const allData = res.data || [];
+            const totalPages = Math.ceil(allData.length / ITEMS_PER_PAGE);
+            const start = (page - 1) * ITEMS_PER_PAGE;
+            const paginatedData = allData.slice(start, start + ITEMS_PER_PAGE);
+
             const container = document.getElementById('list-surat-container');
-            const res = await postData({ action: "listSurat" });
-
-            if (!silent) {
-                container.innerHTML = '<tr><td colspan="5" class="p-8 text-center"><i class="fas fa-spinner fa-spin text-xl text-amber-500"></i></td></tr>';
-            }
-
-            currentListSurat = res.data || [];
             container.innerHTML = '';
 
-            if (currentListSurat.length > 0) {
-                currentListSurat.forEach(item => {
+            if (paginatedData.length > 0) {
+                paginatedData.forEach(item => {
                     const row = `
-                        <tr class="hover:bg-slate-50 transition border-b border-slate-100 last:border-0">
+                        <tr class="hover:bg-slate-50 transition border-b border-slate-100 last:border-0 cursor-pointer" onclick="showDetail('surat', ${JSON.stringify(item).replace(/"/g, '&quot;')})">
                             <td class="p-4 font-mono text-xs font-bold text-slate-600">${item.kode}</td>
                             <td class="p-4 text-slate-600">${item.tanggal}</td>
-                            <td class="p-4"><div class="font-medium text-slate-800 text-sm">${item.uraian}</div></td>
+                            <td class="p-4"><div class="font-medium text-slate-800 text-sm line-clamp-2">${item.uraian}</div></td>
                             <td class="p-4"><span class="px-2 py-1 rounded text-xs font-bold ${item.tingkat === 'Asli' ? 'bg-green-100 text-green-700' : 'bg-blue-100 text-blue-700'}">${item.tingkat}</span></td>
-                            <td class="p-4 text-center">
+                            <td class="p-4 text-center" onclick="event.stopPropagation()">
                                 <div class="flex items-center justify-center gap-2">
                                     <button onclick="editSurat(${item.id})" class="w-8 h-8 rounded-full bg-blue-50 text-blue-600 hover:bg-blue-100 transition" title="Edit">
                                         <i class="fas fa-edit text-xs"></i>
@@ -942,32 +1190,111 @@
                     `;
                     container.insertAdjacentHTML('beforeend', row);
                 });
+                renderPagination('surat', page, totalPages);
             } else {
                 container.innerHTML = `<tr><td colspan="5" class="p-8 text-center text-slate-400">Belum ada data arsip kegiatan.</td></tr>`;
+                document.getElementById('pagination-surat').classList.add('hidden');
             }
-            if (!silent) toggleLoading(false);
-            return currentListSurat;
+
+            toggleLoading(false);
+
+            if (returnFullData) {
+                return allData;
+            }
+            return paginatedData;
+        }
+
+        function renderPagination(type, currentPageNum, totalPages) {
+            const container = document.getElementById(`pagination-${type}`);
+            if (totalPages <= 1) {
+                container.classList.add('hidden');
+                return;
+            }
+            container.classList.remove('hidden');
+
+            let html = `
+                <button onclick="goToPage('${type}', ${currentPageNum - 1})" 
+                        ${currentPageNum === 1 ? 'disabled' : ''}
+                        class="pagination-btn px-4 py-2 rounded-xl border border-slate-200 text-slate-600 hover:bg-orange-50 hover:border-orange-300 disabled:opacity-50 disabled:cursor-not-allowed transition">
+                    <i class="fas fa-chevron-left"></i>
+                </button>
+            `;
+
+            // Tampilkan maksimal 5 halaman
+            let startPage = Math.max(1, currentPageNum - 2);
+            let endPage = Math.min(totalPages, startPage + 4);
+            if (endPage - startPage < 4) {
+                startPage = Math.max(1, endPage - 4);
+            }
+
+            for (let i = startPage; i <= endPage; i++) {
+                html += `
+                    <button onclick="goToPage('${type}', ${i})" 
+                            class="pagination-btn w-10 h-10 rounded-xl transition ${i === currentPageNum ? 'bg-orange-500 text-white shadow-md' : 'border border-slate-200 text-slate-600 hover:bg-orange-50'}">
+                        ${i}
+                    </button>
+                `;
+            }
+
+            html += `
+                <button onclick="goToPage('${type}', ${currentPageNum + 1})" 
+                        ${currentPageNum === totalPages ? 'disabled' : ''}
+                        class="pagination-btn px-4 py-2 rounded-xl border border-slate-200 text-slate-600 hover:bg-orange-50 hover:border-orange-300 disabled:opacity-50 disabled:cursor-not-allowed transition">
+                    <i class="fas fa-chevron-right"></i>
+                </button>
+            `;
+
+            container.innerHTML = html;
+        }
+
+        window.goToPage = function (type, page) {
+            if (type === 'foto') {
+                currentPage.foto = page;
+                loadListFotoWithPagination(page);
+            } else {
+                currentPage.surat = page;
+                loadListSuratWithPagination(page);
+            }
         }
 
         // --- ZOOM MODAL ---
-        function openZoomModal(url) {
+        window.openZoomModal = function (url) {
             const modal = document.getElementById('zoom-modal');
             const img = document.getElementById('zoom-img');
             const pdf = document.getElementById('zoom-pdf');
-            const id = url.match(/[-\w]{25,}/)[0];
+            const fileId = extractGoogleDriveId(url);
 
-            // Check if likely PDF based on context or simple check
-            // Since we store mixed types in listFoto usually just images, but let's be safe
-            img.classList.remove('hidden'); pdf.classList.add('hidden');
-            img.src = `https://drive.google.com/thumbnail?id=${id}&sz=w1000`;
+            img.classList.remove('hidden');
+            pdf.classList.add('hidden');
+
+            if (fileId) {
+                img.src = `https://drive.google.com/thumbnail?id=${fileId}&sz=w1200`;
+            } else {
+                img.src = url;
+            }
             modal.style.display = 'block';
         }
-        function closeZoom() { document.getElementById('zoom-modal').style.display = 'none'; document.getElementById('zoom-pdf').src = ''; }
-        function zoomPreview(type) {
-            const img = document.getElementById('preview-foto-img');
-            if (img.src && img.style.display !== 'none') openZoomModal(img.src);
+
+        function closeZoom() {
+            document.getElementById('zoom-modal').style.display = 'none';
+            document.getElementById('zoom-pdf').src = '';
         }
 
+        function zoomPreview(type) {
+            const img = document.getElementById('preview-foto-img');
+            if (img.src && img.style.display !== 'none') {
+                openZoomModal(img.src);
+            }
+        }
+
+        // Close modals with Escape key
+        document.addEventListener('keydown', function (e) {
+            if (e.key === 'Escape') {
+                closeZoom();
+                closeDetailModal();
+                closeConfirmModal();
+            }
+        });
     </script>
 </body>
 
