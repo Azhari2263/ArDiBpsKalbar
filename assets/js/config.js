@@ -1,123 +1,102 @@
-/**
- * ARDI SE 2026 - Konfigurasi Global
- * Version: 1.0.0
- */
+// assets/js/config.js - Versi dengan Error Handling Lengkap
 
-// Konfigurasi Aplikasi
 const CONFIG = {
-    // API Endpoint
     WEB_APP_URL: "https://script.google.com/macros/s/AKfycbyzXmsEt6pDWw-8PA80nuIRwNvP-1NqXbLQ76cbydmIq-DU4P3bSGh-XsA7_uWcbLHW/exec",
-
-    // Cache Configuration
-    CACHE_DURATION: 5 * 60 * 1000, // 5 menit
+    CACHE_DURATION: 5 * 60 * 1000,
     CACHE_ENABLED: true,
-
-    // Pagination
-    PAGE_SIZE: 12, // Data per page untuk grid foto
-    TABLE_PAGE_SIZE: 20, // Data per page untuk tabel surat
-
-    // Image Configuration
-    THUMBNAIL_SIZE: 'w200',
-    PREVIEW_SIZE: 'w800',
-    ZOOM_SIZE: 'w1200',
-
-    // Timeout Configuration
-    REQUEST_TIMEOUT: 30000, // 30 detik
-
-    // Feature Flags
-    ENABLE_CACHE: true,
-    ENABLE_LAZY_LOAD: true,
-    ENABLE_OFFLINE_MODE: false,
-
-    // Session Configuration
-    SESSION_KEY: 'ardi_se_session',
-    SESSION_DURATION: 8 * 60 * 60 * 1000 // 8 jam
+    PAGE_SIZE: 12,
+    REQUEST_TIMEOUT: 30000,
+    MAX_RETRIES: 3
 };
 
-// Cache Manager
-const CacheManager = {
-    cache: new Map(),
+// Enhanced postData dengan retry dan error handling
+async function postData(payload, retryCount = 0) {
+    // Check internet connection
+    if (!navigator.onLine) {
+        showToast('Tidak ada koneksi internet. Periksa jaringan Anda.', 'error');
+        return { success: false, error: 'No internet connection' };
+    }
 
-    /**
-     * Set data ke cache
-     * @param {string} key - Cache key
-     * @param {any} data - Data to cache
-     */
-    set(key, data) {
-        if (!CONFIG.ENABLE_CACHE) return;
-        this.cache.set(key, {
-            data: data,
-            timestamp: Date.now()
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), CONFIG.REQUEST_TIMEOUT);
+
+    try {
+        console.log(`[Request] ${payload.action} - Attempt ${retryCount + 1}`);
+
+        const response = await fetch(CONFIG.WEB_APP_URL, {
+            method: "POST",
+            mode: "cors",
+            cache: "no-cache",
+            credentials: "omit",
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(payload),
+            signal: controller.signal
         });
-    },
 
-    /**
-     * Get data dari cache
-     * @param {string} key - Cache key
-     * @returns {any|null} Cached data or null
-     */
-    get(key) {
-        if (!CONFIG.ENABLE_CACHE) return null;
-        const cached = this.cache.get(key);
-        if (cached && (Date.now() - cached.timestamp) < CONFIG.CACHE_DURATION) {
-            return cached.data;
+        clearTimeout(timeoutId);
+
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
         }
-        return null;
-    },
 
-    /**
-     * Clear cache
-     * @param {string|null} key - Specific key or all if null
-     */
-    clear(key = null) {
-        if (key) {
-            this.cache.delete(key);
+        const data = await response.json();
+        console.log(`[Response] ${payload.action}:`, data);
+
+        return data;
+
+    } catch (error) {
+        clearTimeout(timeoutId);
+
+        // Handle AbortError (timeout)
+        if (error.name === 'AbortError') {
+            console.error('Request timeout:', payload.action);
+            return { success: false, error: 'Request timeout. Server terlalu lama merespon.' };
+        }
+
+        // Handle CORS error
+        if (error.message.includes('fetch')) {
+            console.error('CORS or network error:', error);
+            return {
+                success: false,
+                error: 'Gagal terhubung ke server. Periksa CORS settings di Google Apps Script.'
+            };
+        }
+
+        // Retry logic
+        if (retryCount < CONFIG.MAX_RETRIES) {
+            console.log(`Retrying... (${retryCount + 1}/${CONFIG.MAX_RETRIES})`);
+            const delay = 1000 * Math.pow(2, retryCount); // Exponential backoff
+            await new Promise(resolve => setTimeout(resolve, delay));
+            return postData(payload, retryCount + 1);
+        }
+
+        showToast(`Error: ${error.message}`, 'error');
+        return { success: false, error: error.message };
+    }
+}
+
+// Test connection function
+async function testConnection() {
+    toggleLoading(true);
+    try {
+        const result = await postData({ action: "ping" });
+        if (result.success) {
+            showToast('Koneksi berhasil!', 'success');
+            return true;
         } else {
-            this.cache.clear();
+            showToast('Koneksi gagal: ' + (result.error || 'Unknown error'), 'error');
+            return false;
         }
-    },
-
-    /**
-     * Check if cache is valid
-     * @param {string} key - Cache key
-     * @returns {boolean}
-     */
-    isValid(key) {
-        const cached = this.cache.get(key);
-        return cached && (Date.now() - cached.timestamp) < CONFIG.CACHE_DURATION;
+    } catch (error) {
+        showToast('Koneksi gagal: ' + error.message, 'error');
+        return false;
+    } finally {
+        toggleLoading(false);
     }
-};
+}
 
-// Request Queue untuk mencegah duplicate requests
-const RequestQueue = {
-    pendingRequests: new Map(),
-
-    /**
-     * Add request to queue
-     * @param {string} key - Request key
-     * @param {Promise} promise - Request promise
-     * @returns {Promise}
-     */
-    add(key, promise) {
-        if (this.pendingRequests.has(key)) {
-            return this.pendingRequests.get(key);
-        }
-        this.pendingRequests.set(key, promise);
-        promise.finally(() => {
-            this.pendingRequests.delete(key);
-        });
-        return promise;
-    },
-
-    /**
-     * Clear queue
-     */
-    clear() {
-        this.pendingRequests.clear();
-    }
-};
-
-// Export ke global
-window.CONFIG = CONFIG;
-window.CacheManager = CacheManager;
-window.RequestQueue = RequestQueue;
+// Export
+window.postData = postData;
+window.testConnection = testConnection;
